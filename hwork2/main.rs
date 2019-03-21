@@ -1,16 +1,14 @@
 //********************************************************
 // David Kerka, Frank MacDonald
 // Cs 4100
-// Implmenting VM
+// Implmenting VM with a Garbage Collector and Concurrent Threads
 //******************************************************** 
 extern crate byteorder;
 use byteorder::{ByteOrder, BigEndian};
 use std::env;
 use std::fs;
 use std::slice::Iter;
-
-type Address = usize;
-
+type Address  = usize;
 //impl<R: Reader> Reader for IoResult<R>
 #[derive(Debug)]
 pub struct State {
@@ -159,26 +157,23 @@ pub fn instr(i: &Instr,s: &mut State){
                 let temp = s.stack[*v as usize].clone();
                 s.stack.push(temp);
         },
-        Instr::Unary(Unop)      =>{
+        Instr::Unary(_unop)      =>{
                 match s.stack.pop().unwrap() {
                     Val::Vbool(b)        => {
                         match b {
                             true                => {
-                                s.stack.pop();
                                 s.stack.push(Val::Vbool(false));
                             }
                             false               => {
-                                s.stack.pop();
                                 s.stack.push(Val::Vbool(true));
                             }
                         }
                     }
                     _               => panic!("Error trying to convert non Bool to unary"),
                 }
-        },
-        
-        Instr::Binary(Binop)    =>{ 
-            match Binop{
+        },       
+        Instr::Binary(_binop)    =>{ 
+            match _binop{
                 Binop::Add          =>{
                     let temp1 = s.stack.pop(); //v1
                     let temp2 = s.stack.pop(); //v2
@@ -211,11 +206,11 @@ pub fn instr(i: &Instr,s: &mut State){
                     match temp2.unwrap() {
                         Val::Vi32(v2)       =>{
                             match temp1.unwrap(){
-                                Val::Vi32(v1)   => s.stack.push(Val::Vi32(v2 - v1)),        
+                                Val::Vi32(v1)   => s.stack.push(Val::Vi32(v1 - v2)),        
                                 _               => panic!("Cannot add subtract i32 values together"),
                             } 
                         },
-                        _               => panic!("Cannot add non subtract values togetger"),
+                        _               => panic!("Cannot add non subtract values togethger"),
                     }
                 },
                 Binop::Div          =>{
@@ -224,7 +219,7 @@ pub fn instr(i: &Instr,s: &mut State){
                     match temp2.unwrap() {
                         Val::Vi32(v2)       =>{
                             match temp1.unwrap(){
-                                Val::Vi32(v1)   => s.stack.push(Val::Vi32(v2 / v1)),        
+                                Val::Vi32(v1)   => s.stack.push(Val::Vi32(v1 / v2)),        
                                 _               => panic!("Cannot divide non i32 values together"),
                             } 
                         },
@@ -287,10 +282,10 @@ pub fn instr(i: &Instr,s: &mut State){
                 Val::Vi32(val) =>{
                     if val as usize + s.heap.len() as usize > 1024
                     {
-                        panic!("This is bigger then 1024 vals which is not allowed");
+                     panic!("This is bigger then 1024 vals which is not allowed");
                     }
                     s.heap.push(Val::Vsize(val));
-                    for x in 0..val {
+                    for _x in 0..val {
                         s.heap.push(temp2);
                     }
                 }
@@ -315,8 +310,7 @@ pub fn instr(i: &Instr,s: &mut State){
                 },
                 _ => panic!("not a Vaddr"),
             } 
-        },
-        
+        }, 
         Instr::Get              =>{
             let idx = s.stack.pop().unwrap();
             let vaddr = s.stack.pop().unwrap();
@@ -336,7 +330,6 @@ pub fn instr(i: &Instr,s: &mut State){
             } 
 
         },
-
         Instr::Var(v)         =>{
             if (s.fp + v) < (s.stack.len() as u32) {
                 s.stack.push(s.stack[(s.fp+v) as usize].clone());
@@ -355,7 +348,6 @@ pub fn instr(i: &Instr,s: &mut State){
             s.stack.push(Val::Vloc(s.fp));
             s.fp = (s.stack.len() as u32) - v - 1;
         },
-        
         Instr::Call             =>{
            let temp = s.stack.pop();
            match temp.unwrap(){
@@ -365,18 +357,14 @@ pub fn instr(i: &Instr,s: &mut State){
                }   
                _                   => panic!("Vloc is not set before the call statement"),
            }
-        },
-        
-       
+        },     
         Instr::Ret              =>{
 
             let vret = s.stack.pop().unwrap();
             let caller_pc = s.stack.pop().unwrap();
             let caller_fp = s.stack.pop().unwrap();
-
-            let callee_pc = s.pc;
+            let _callee_pc = s.pc;
             let callee_fp = s.fp;
-
             match caller_pc {
                 Val::Vloc(x) => s.pc = x,
                 Val::Vi32(y) => s.pc = y as u32,
@@ -413,13 +401,11 @@ pub fn instr(i: &Instr,s: &mut State){
                 },
                 _                       => panic!("ERROR"),
             }
-        },
-         
+        },      
         Instr::Halt             =>{
             s.halt = true;
         },
-        
-         _   => panic!("Error within the instruction conversion"),   
+        // _   => panic!("Error within the instruction conversion"),   
     }
 }
 pub fn exec(s: &mut State) {
@@ -436,7 +422,6 @@ pub fn exec(s: &mut State) {
 }
 
 fn main() -> std::io::Result<()>{
-     
     let args: Vec<String> = env::args().collect();
     let prg:  Vec<Instr>  = Vec::new();
     let stack:Vec<Val>    = Vec::new();
@@ -458,6 +443,6 @@ fn main() -> std::io::Result<()>{
         //println!("{:#?}", s.program[_i as usize]);
     }
     exec(&mut s);
-    println!("{:#?}", s.stack.pop());
+    println!("{:?}", s.stack.pop().unwrap());
     Ok(())
 }
