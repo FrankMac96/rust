@@ -8,17 +8,39 @@ use byteorder::{ByteOrder, BigEndian};
 use std::env;
 use std::fs;
 use std::slice::Iter;
+use std::collections::HashMap;
 type Address  = usize;
 //impl<R: Reader> Reader for IoResult<R>
 #[derive(Debug)]
+
+//Original state struct
 pub struct State {
-	pub halt: 	bool,
+    pub halt: 	bool,
+	pub pc:   	u32,
+	pub fp:   	u32,
+	pub stack:	Vec<Val>,
+    pub heap:   Vec<Val>,
+    pub program: Vec<Instr>,
+}
+/*
+//Updated state struct to hold a vector of threads
+pub struct State {
+	pub Threads: Vec<T_state>
+	pub program: Vec<Instr>,
+}
+*/
+
+
+/*
+//Thread state struct
+pub struct T_state {
+pub halt: 	bool,
 	pub pc:   	u32,
 	pub fp:   	u32,
 	pub stack:	Vec<Val>,
 	pub heap:	Vec<Val>,
-	pub program:Vec<Instr>,
 }
+*/
 #[derive(Debug, Clone, Copy)]
 pub enum Val{
 	Vunit,
@@ -44,6 +66,8 @@ pub enum Binop {
 }
 #[derive(Debug, Clone)]
 pub enum Instr {
+    Print,
+    Spawn,
 	Push(Val),
 	Pop,
 	Peek(u32),
@@ -138,6 +162,8 @@ impl BinConvert for Instr {
             13                  => Instr::Ret,
             14                  => Instr::Branch,
             15                  => Instr::Halt,
+            16                  => Instr::Spawn,
+            20                  => Instr::Print,
             _                   => {
                 panic!("Error converting to Instr");    
             }
@@ -277,9 +303,9 @@ pub fn instr(i: &Instr,s: &mut State){
         Instr::Alloc            =>{
             let temp2 = s.stack.pop().unwrap(); //vinit
             let temp1 = s.stack.pop().unwrap(); //Vi32(size)
-            s.stack.push(Val::Vaddr(s.heap.len() as usize));
             match temp1 {
                 Val::Vi32(val) =>{
+                    
                     if val as usize + s.heap.len() as usize > 1024
                     {
                         gc(s);
@@ -287,6 +313,8 @@ pub fn instr(i: &Instr,s: &mut State){
                             panic!("This is bigger then 1024 vals which is not allowed");
                         }
                     }
+                    
+                    s.stack.push(Val::Vaddr(s.heap.len() as usize));
                     s.heap.push(Val::Vsize(val));
                     for _x in 0..val {
                         s.heap.push(temp2);
@@ -408,7 +436,19 @@ pub fn instr(i: &Instr,s: &mut State){
         Instr::Halt             =>{
             s.halt = true;
         },
-        // _   => panic!("Error within the instruction conversion"),   
+        Instr::Print => {
+            let temp = s.stack.pop();
+            if let Val::Vi32(val) = temp.unwrap(){
+                let pr_temp = (val as u8) as char;
+                print!("{}", pr_temp);
+            }
+        }
+        Instr::Spawn            =>{
+            let vaddr = s.stack.pop().unwrap();
+            
+            println!("YERRRR");
+        }
+       
     }
 }
 pub fn exec(s: &mut State) {
@@ -428,38 +468,43 @@ pub fn exec(s: &mut State) {
 //State's heap is the from_heap
 //To_heap becomes from_heap after collection finishes
 pub fn gc(s: &mut State){
-    println!("Size before garbage collection: {}", s.heap.len());
-    let mut next = 0;
-    let mut scan = 0;
+    println!("GC start: {}", s.heap.len());
+    let mut next  = 0;
+    let mut scan  = 0;
     let mut to_heap: Vec<Val>  = Vec::with_capacity(1024);  
     //Loop looking for Vaddr within the stack
-    for val in &s.stack{                      //First pass of copy collection, getting values from the stack
-        if let Val::Vaddr(base) = val {               
-            if let Val::Vsize(size) = &s.heap[*base] {
-                for copy in *base..(*base + *size as usize + 1){
+    for val in 0..s.stack.len(){                                //First pass of copy collection, getting values from the stack
+        if let Val::Vaddr(base) = s.stack[val] {               
+            if let Val::Vsize(size) = &s.heap[base] { 
+                //println!("Size: {}", size); 
+                s.stack[val] = Val::Vaddr(next);
+                for copy in base..(base + *size as usize + 1){
                     to_heap.push(s.heap[copy].clone());
                 }
-            next += size;
+            next += *size as usize + 1;
             } 
         }
     }
-    while scan < next{
-        if let Val::Vsize(size) = s.heap[next as usize].clone(){
-             for i in scan..scan+size{
-                if let Val::Vaddr(base) = s.heap[i as usize]{
-                    for copy in base..(base + size as usize){
-                        to_heap.push(s.heap[copy].clone());
-                    }
-                    next+=size;
+    let mut stored_addresses: HashMap<usize, usize> = HashMap::new();
+    while scan != next{                                         //Second pass of the copy collection, allocating the rest of arrays
+    if let Val::Vaddr(base) = to_heap[scan as usize]{           //onto the To_Heap from the From_Heap
+        if let Some(&number) = stored_addresses.get(&base){
+            to_heap[scan as usize] = Val::Vaddr(number);
+        }else{
+            if let Val::Vsize(size) = &s.heap[base]{
+                for copy in base..(base+(*size as usize)+1){
+                    to_heap.push(s.heap[copy].clone());
                 }
+                next += *size as usize;
+                stored_addresses.insert(base, scan);
             }
-            scan += size;
-        }
+        } 
+    }
+    scan += 1;
     }
     s.heap = to_heap;
-    println!("Size before garbage collection: {}", s.heap.len());
+     println!("GC end: {}", s.heap.len());
 }
-
 fn main() -> std::io::Result<()>{
     let args: Vec<String> = env::args().collect();
     let prg:  Vec<Instr>  = Vec::new();
@@ -474,14 +519,14 @@ fn main() -> std::io::Result<()>{
 	    pc:   	 0,
 	    fp:   	 0,
 	    stack:   stack,	 
-	    heap:    heap,	 
+	    heap:    heap,	
 	    program: prg, 
     };
     for _i in 0..prog_size {
         s.program.push(Instr::get_bin(buf_iter.by_ref()));
-        //println!("{:#?}", s.program[_i as usize]);
     }
     exec(&mut s);
     println!("{:?}", s.stack.pop().unwrap());
+    //std::io::stderr().write("GC end: {}", s.heap.len())?;
     Ok(())
 }
